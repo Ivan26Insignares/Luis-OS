@@ -4,11 +4,11 @@ const ESPN = 'https://site.api.espn.com/apis/site/v2/sports';
 const ESPN2 = 'https://site.api.espn.com/apis/v2/sports';
 
 const SPORT_TEAMS = [
-  { key: 'gb', name: 'Green Bay Packers', short: 'Packers', sport: 'football', leagues: ['nfl'], id: '', match: ['green bay packers', 'packers'], emoji: '🏈', color: '#203731' },
-  { key: 'liv', name: 'Liverpool FC', short: 'Liverpool', sport: 'soccer', leagues: ['eng.1', 'uefa.champions', 'eng.fa', 'eng.league_cup'], id: '', match: ['liverpool'], emoji: '⚽', color: '#c8102e' },
-  { key: 'mil', name: 'Milwaukee Brewers', short: 'Brewers', sport: 'baseball', leagues: ['mlb'], id: '', match: ['milwaukee brewers', 'brewers'], emoji: '⚾', color: '#ffc52f' },
-  { key: 'bucks', name: 'Milwaukee Bucks', short: 'Bucks', sport: 'basketball', leagues: ['nba'], id: '', match: ['milwaukee bucks', 'bucks'], emoji: '🏀', color: '#00471b' },
-  { key: 'chivas', name: 'Chivas (Guadalajara)', short: 'Chivas', sport: 'soccer', leagues: ['mex.1', 'concacaf.champions'], id: '', match: ['guadalajara', 'chivas'], emoji: '🐐', color: '#e30613' },
+  { key: 'gb', name: 'Green Bay Packers', short: 'Packers', sport: 'football', leagues: ['nfl'], id: '9', match: ['green bay packers', 'packers'], emoji: '🏈', color: '#203731' },
+  { key: 'liv', name: 'Liverpool FC', short: 'Liverpool', sport: 'soccer', leagues: ['eng.1', 'uefa.champions', 'eng.fa', 'eng.league_cup'], id: '364', match: ['liverpool'], emoji: '⚽', color: '#c8102e' },
+  { key: 'mil', name: 'Milwaukee Brewers', short: 'Brewers', sport: 'baseball', leagues: ['mlb'], id: '8', match: ['milwaukee brewers', 'brewers'], emoji: '⚾', color: '#ffc52f' },
+  { key: 'bucks', name: 'Milwaukee Bucks', short: 'Bucks', sport: 'basketball', leagues: ['nba'], id: '15', match: ['milwaukee bucks', 'bucks'], emoji: '🏀', color: '#00471b' },
+  { key: 'chivas', name: 'Chivas (Guadalajara)', short: 'Chivas', sport: 'soccer', leagues: ['mex.1', 'concacaf.champions'], id: '219', match: ['guadalajara', 'chivas'], emoji: '🐐', color: '#e30613' },
   { key: 'f1', name: 'Fórmula 1', short: 'F1', sport: 'racing', leagues: ['f1'], id: 'f1', match: [], emoji: '🏎️', color: '#e10600' }
 ];
 
@@ -113,7 +113,13 @@ async function loadTeam(team, force = false) {
       S.id = id; S.league = league;
       const leagues = [league, ...team.leagues.filter(l => l !== league)];
       const games = new Map();
-      const add = (j, lg) => (j.events || []).forEach(e => {
+      let fallback = null;
+      const add = (j, lg) => {
+        // El calendario también trae el récord del equipo (en la versión web la ficha del equipo puede fallar por CORS).
+        if (!fallback && j.team) { const t = j.team; fallback = { name: t.displayName || '', logo: teamLogo(t), color: t.color ? '#' + t.color : '', record: t.recordSummary || '', home: '', road: '', standing: (t.standingSummary || '').replace(/(\d+)(st|nd|rd|th) in /i, '$1.º en ').replace(/^Tied for /i, 'Empatado en '), stats: {} }; }
+        addEvents(j, lg);
+      };
+      const addEvents = (j, lg) => (j.events || []).forEach(e => {
         const g = parseGame(e, lg);
         if (!g) return;
         const old = games.get(g.id);
@@ -125,8 +131,10 @@ async function loadTeam(team, force = false) {
         jobs.push(getJ(base).then(j => add(j, lg)));
         if (team.sport === 'soccer') jobs.push(getJ(base + '?fixture=true').then(j => add(j, lg)));
       }
-      jobs.push(getJ(`${ESPN}/${team.sport}/${league}/teams/${id}`).then(j => { S.info = parseInfo(j.team || {}); }));
+      let gotInfo = false;
+      jobs.push(getJ(`${ESPN}/${team.sport}/${league}/teams/${id}`).then(j => { S.info = parseInfo(j.team || {}); gotInfo = true; }));
       const res = await Promise.allSettled(jobs);
+      if (!gotInfo && fallback && (!S.info || !S.info.record)) S.info = fallback;
       if (res.every(r => r.status === 'rejected')) throw res[0].reason;
       if (games.size) S.games = [...games.values()].sort((a, b) => a.date.localeCompare(b.date));
       S.at = Date.now(); S.err = null;
